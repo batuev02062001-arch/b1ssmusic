@@ -72,7 +72,9 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID  = int(os.getenv("OWNER_ID", "0"))   # твой Telegram user_id
 # ────────────────────────────────────────────────────────
 
-bot     = Bot(token=BOT_TOKEN)
+from aiogram.client.session.aiohttp import AiohttpSession
+_session = AiohttpSession(timeout=120)
+bot     = Bot(token=BOT_TOKEN, session=_session)
 storage = SimpleFileStorage("fsm_storage.json")
 dp      = Dispatcher(storage=storage)
 db      = Database("library.db")
@@ -425,6 +427,57 @@ async def owner_send_reply_early(message: Message, state: FSMContext):
         await message.answer(f"❌ Не удалось отправить: `{e}`", parse_mode="Markdown")
 
 
+@dp.message(States.playlist_naming, F.text)
+async def pl_set_name_fsm(message: Message, state: FSMContext):
+    name    = message.text.strip()
+    user_id = message.from_user.id
+    pl_id, status = db.create_playlist(user_id, name)
+    if status == "limit":
+        await state.clear()
+        await message.answer(f"⛔ Достигнут лимит в {PLAYLIST_LIMIT} плейлистов.")
+        return
+    if status == "empty_name":
+        await message.answer("❌ Название не может быть пустым. Попробуй ещё раз:")
+        return
+    if status == "long_name":
+        await message.answer("❌ Название слишком длинное (макс. 64 символа). Попробуй ещё раз:")
+        return
+    library = db.get_library(user_id)
+    await state.set_state(States.playlist_select_tracks)
+    await state.update_data(playlist_id=pl_id, selected_ids=[], sel_page=0)
+    if not library:
+        await state.clear()
+        await message.answer(
+            f"✅ Плейлист *{name}* создан!\n\n📭 Библиотека пуста — добавь треки и наполни плейлист.",
+            parse_mode="Markdown"
+        )
+        return
+    await message.answer(
+        f"✅ Плейлист *{name}* создан!\n\nВыбери треки из библиотеки:",
+        parse_mode="Markdown",
+        reply_markup=kb_select_tracks(library, set(), pl_id)
+    )
+
+
+@dp.message(States.playlist_renaming, F.text)
+async def pl_do_rename_fsm(message: Message, state: FSMContext):
+    data     = await state.get_data()
+    pl_id    = data.get("rename_playlist_id")
+    new_name = message.text.strip()
+    if not new_name:
+        await message.answer("❌ Название не может быть пустым.")
+        return
+    if len(new_name) > 64:
+        await message.answer("❌ Слишком длинное (макс. 64 символа).")
+        return
+    ok = db.rename_playlist(pl_id, message.from_user.id, new_name)
+    await state.clear()
+    await message.answer(
+        f"✅ Переименован в *{new_name}*!" if ok else "❌ Не удалось переименовать.",
+        parse_mode="Markdown"
+    )
+
+
 @dp.message(F.text & ~F.text.startswith("/") & ~F.text.in_(RESERVED_TEXTS))
 async def auto_search(message: Message, state: FSMContext):
     current = await state.get_state()
@@ -620,38 +673,6 @@ async def pl_create_start(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
-@dp.message(States.playlist_naming)
-async def pl_set_name(message: Message, state: FSMContext):
-    name    = message.text.strip()
-    user_id = message.from_user.id
-    pl_id, status = db.create_playlist(user_id, name)
-    if status == "limit":
-        await state.clear()
-        await message.answer(f"⛔ Достигнут лимит в {PLAYLIST_LIMIT} плейлистов.")
-        return
-    if status == "empty_name":
-        await message.answer("❌ Название не может быть пустым. Попробуй ещё раз:")
-        return
-    if status == "long_name":
-        await message.answer("❌ Название слишком длинное (макс. 64 символа). Попробуй ещё раз:")
-        return
-    library = db.get_library(user_id)
-    await state.set_state(States.playlist_select_tracks)
-    await state.update_data(playlist_id=pl_id, selected_ids=[], sel_page=0)
-    if not library:
-        await state.clear()
-        await message.answer(
-            f"✅ Плейлист *{name}* создан!\n\n📭 Библиотека пуста — добавь треки и наполни плейлист.",
-            parse_mode="Markdown"
-        )
-        return
-    await message.answer(
-        f"✅ Плейлист *{name}* создан!\n\nВыбери треки из библиотеки:",
-        parse_mode="Markdown",
-        reply_markup=kb_select_tracks(library, set(), pl_id)
-    )
-
-
 @dp.callback_query(F.data.startswith("sel_toggle:"))
 async def sel_toggle(callback: CallbackQuery, state: FSMContext):
     tid      = callback.data.split(":", 1)[1]
@@ -817,25 +838,6 @@ async def pl_rename_start(callback: CallbackQuery, state: FSMContext):
         parse_mode="Markdown"
     )
     await callback.answer()
-
-
-@dp.message(States.playlist_renaming)
-async def pl_do_rename(message: Message, state: FSMContext):
-    data    = await state.get_data()
-    pl_id   = data.get("rename_playlist_id")
-    new_name = message.text.strip()
-    if not new_name:
-        await message.answer("❌ Название не может быть пустым.")
-        return
-    if len(new_name) > 64:
-        await message.answer("❌ Слишком длинное (макс. 64 символа).")
-        return
-    ok = db.rename_playlist(pl_id, message.from_user.id, new_name)
-    await state.clear()
-    await message.answer(
-        f"✅ Переименован в *{new_name}*!" if ok else "❌ Не удалось переименовать.",
-        parse_mode="Markdown"
-    )
 
 
 @dp.callback_query(F.data.startswith("pl_delete:"))

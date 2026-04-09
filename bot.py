@@ -337,10 +337,37 @@ async def do_search(message: Message, state: FSMContext):
     await process_query(message, message.text.strip())
 
 
+@dp.message(States.support_writing, F.text | F.photo | F.video | F.document)
+async def support_send_message(message: Message, state: FSMContext):
+    await state.clear()
+    user     = message.from_user
+    username = f"@{user.username}" if user.username else "нет username"
+
+    if OWNER_ID == 0:
+        await message.answer("⚠️ Поддержка временно недоступна.")
+        return
+
+    await bot.send_message(
+        OWNER_ID,
+        f"🆘 *Новое обращение в поддержку*\n"
+        f"👤 {user.full_name} ({username})\n"
+        f"🆔 `{user.id}`\n"
+        f"{'─' * 25}",
+        parse_mode="Markdown"
+    )
+    await message.forward(OWNER_ID)
+    await bot.send_message(
+        OWNER_ID,
+        f"👆 Сообщение от `{user.id}`",
+        parse_mode="Markdown",
+        reply_markup=kb_reply_to_user(user.id)
+    )
+    await message.answer("✅ Обращение отправлено! Мы ответим в ближайшее время. 🙏")
+
+
 @dp.message(F.text & ~F.text.startswith("/") & ~F.text.in_(RESERVED_TEXTS))
 async def auto_search(message: Message, state: FSMContext):
     current = await state.get_state()
-    # Пропускаем все FSM-состояния — их обрабатывают свои хэндлеры
     if current is not None:
         return
     await process_query(message, message.text.strip())
@@ -798,34 +825,6 @@ async def support_start(message: Message, state: FSMContext):
         "Напиши /cancel чтобы отменить.",
         parse_mode="Markdown"
     )
-
-
-@dp.message(States.support_writing)
-async def support_send_message(message: Message, state: FSMContext):
-    await state.clear()
-    user     = message.from_user
-    username = f"@{user.username}" if user.username else "нет username"
-
-    if OWNER_ID == 0:
-        await message.answer("⚠️ Поддержка временно недоступна.")
-        return
-
-    await bot.send_message(
-        OWNER_ID,
-        f"🆘 *Новое обращение в поддержку*\n"
-        f"👤 {user.full_name} ({username})\n"
-        f"🆔 `{user.id}`\n"
-        f"{'─' * 25}",
-        parse_mode="Markdown"
-    )
-    await message.forward(OWNER_ID)
-    await bot.send_message(
-        OWNER_ID,
-        f"👆 Сообщение от `{user.id}`",
-        parse_mode="Markdown",
-        reply_markup=kb_reply_to_user(user.id)
-    )
-    await message.answer("✅ Обращение отправлено! Мы ответим в ближайшее время. 🙏")
 
 
 # ══════════════════════════════════════════

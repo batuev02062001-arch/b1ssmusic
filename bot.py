@@ -23,8 +23,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── ВСТАВЬ СВОИ ДАННЫЕ ──────────────────────────────────
-BOT_TOKEN = os.getenv("BOT_TOKEN", "ВСТАВЬ_ТОКЕН_СЮДА")
-OWNER_ID  = int(os.getenv("OWNER_ID", "0"))   # твой Telegram user_id
+BOT_TOKEN = os.getenv("8655631881:AAH5JFex9XRPSHhVy8utBVmA6a9mN7Cm1_E")
+OWNER_ID  = 8392734804   # твой Telegram user_id
 # ────────────────────────────────────────────────────────
 
 bot     = Bot(token=BOT_TOKEN)

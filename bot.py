@@ -12,6 +12,51 @@ from aiogram.types import (
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.storage.base import StorageKey, BaseStorage, StateType
+from typing import Any, Dict, Optional, cast
+import json, pathlib
+
+
+class SimpleFileStorage(BaseStorage):
+    """Простое FSM-хранилище на основе JSON-файла — переживает перезапуски."""
+
+    def __init__(self, path: str = "fsm_storage.json"):
+        self._path = pathlib.Path(path)
+        self._data: Dict[str, Any] = {}
+        if self._path.exists():
+            try:
+                self._data = json.loads(self._path.read_text())
+            except Exception:
+                self._data = {}
+
+    def _key(self, key: StorageKey) -> str:
+        return f"{key.bot_id}:{key.chat_id}:{key.user_id}"
+
+    def _save(self):
+        self._path.write_text(json.dumps(self._data))
+
+    async def set_state(self, key: StorageKey, state: StateType = None):
+        k = self._key(key)
+        if k not in self._data:
+            self._data[k] = {"state": None, "data": {}}
+        self._data[k]["state"] = state.state if hasattr(state, "state") else state
+        self._save()
+
+    async def get_state(self, key: StorageKey) -> Optional[str]:
+        return self._data.get(self._key(key), {}).get("state")
+
+    async def set_data(self, key: StorageKey, data: Dict[str, Any]):
+        k = self._key(key)
+        if k not in self._data:
+            self._data[k] = {"state": None, "data": {}}
+        self._data[k]["data"] = data
+        self._save()
+
+    async def get_data(self, key: StorageKey) -> Dict[str, Any]:
+        return self._data.get(self._key(key), {}).get("data", {})
+
+    async def close(self):
+        pass
 
 from database import Database, LIBRARY_LIMIT, PLAYLIST_LIMIT, PLAYLIST_TRACKS_LIMIT
 from search import search_soundcloud, download_track
@@ -28,7 +73,7 @@ OWNER_ID  = int(os.getenv("OWNER_ID", "0"))   # твой Telegram user_id
 # ────────────────────────────────────────────────────────
 
 bot     = Bot(token=BOT_TOKEN)
-storage = MemoryStorage()
+storage = SimpleFileStorage("fsm_storage.json")
 dp      = Dispatcher(storage=storage)
 db      = Database("library.db")
 
@@ -363,6 +408,21 @@ async def support_send_message(message: Message, state: FSMContext):
         reply_markup=kb_reply_to_user(user.id)
     )
     await message.answer("✅ Обращение отправлено! Мы ответим в ближайшее время. 🙏")
+
+
+@dp.message(States.owner_replying, F.text | F.photo | F.video | F.document)
+async def owner_send_reply_early(message: Message, state: FSMContext):
+    if not is_owner(message.from_user.id):
+        return
+    data      = await state.get_data()
+    target_id = data.get("reply_target")
+    await state.clear()
+    try:
+        await bot.send_message(target_id, "📩 *Ответ от поддержки:*", parse_mode="Markdown")
+        await message.copy_to(target_id)
+        await message.answer(f"✅ Ответ отправлен пользователю `{target_id}`.", parse_mode="Markdown")
+    except Exception as e:
+        await message.answer(f"❌ Не удалось отправить: `{e}`", parse_mode="Markdown")
 
 
 @dp.message(F.text & ~F.text.startswith("/") & ~F.text.in_(RESERVED_TEXTS))

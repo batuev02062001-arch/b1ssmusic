@@ -1538,22 +1538,35 @@ async def admin_panel(message: Message):
     if not is_admin(uid): return
     appeals = db.get_pending_appeals()
     appeal_note = f"\n📝 Апелляций на рассмотрении: *{len(appeals)}*" if appeals else ""
+    owner_cmds = (
+        "\n\n👑 *Только владелец:*\n"
+        "/addadmin `<id>` — назначить администратора\n"
+        "/removeadmin `<id>` — снять права администратора\n"
+        "/broadcast — рассылка всем пользователям\n"
+        "/stats — статистика бота"
+    ) if is_owner(uid) else ""
     await message.answer(
-        "👮 *Панель админа*\n\n"
+        "👮 *Панель администратора*\n\n"
         f"👥 Пользователей: *{db.get_users_count()}*\n"
-        f"🚫 Заблокировано: *{db.get_banned_count()}*{appeal_note}\n\n"
+        f"🚫 Заблокировано: *{db.get_banned_count()}*"
+        f"{appeal_note}\n\n"
         "━━━━━━━━━━━━━━━━\n"
-        "*Команды:*\n"
-        "/users — список пользователей\n"
-        "/ban `<id>` — перманентный бан\n"
-        "/unban `<id>` — разбан\n"
-        "/tempban — временный бан\n"
-        "/appeals — список апелляций\n"
-        "/msguser — написать пользователю\n"
+        "👤 *Пользователи:*\n"
+        "/users — список всех пользователей\n"
         "/viewlib `<id>` — библиотека пользователя\n"
-        "/viewplaylists `<id>` — плейлисты пользователя"
-        + ("\n/addadmin `<id>` — назначить админа\n/removeadmin `<id>` — снять админа\n/broadcast — рассылка"
-           if is_owner(uid) else ""),
+        "/viewplaylists `<id>` — плейлисты пользователя\n"
+        "/msguser — отправить сообщение пользователю\n\n"
+        "🚫 *Баны:*\n"
+        "/ban `<id>` — перманентный бан\n"
+        "/unban `<id>` — снять бан\n"
+        "/tempban — временный бан (1h / 7d / 30d)\n\n"
+        "📝 *Апелляции:*\n"
+        "/appeals — апелляции на рассмотрении\n\n"
+        "⚙️ *Общие:*\n"
+        "/start — перезапустить бота\n"
+        "/help — справка для пользователей\n"
+        "/cancel — отменить текущее действие"
+        f"{owner_cmds}",
         parse_mode="Markdown"
     )
 

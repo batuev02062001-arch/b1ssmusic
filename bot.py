@@ -940,10 +940,81 @@ def _is_btn(uid: int, key: str, text: str) -> bool:
     return False
 
 
-@dp.message(S.searching)
-async def do_search_state(message: Message, state: FSMContext):
+@dp.message(S.searching, F.text.startswith("/"))
+async def do_search_state_command(message: Message, state: FSMContext):
+    """When a command is sent while in searching state, clear FSM and handle the command."""
     await state.clear()
-    await _do_search(message, message.text.strip())
+    cmd = message.text.split()[0].lstrip("/").split("@")[0].lower()
+    # Route known commands that could be affected
+    if cmd == "broadcast" and is_owner(message.from_user.id):
+        await cmd_broadcast(message, state)
+    elif cmd == "cancel":
+        await cmd_cancel(message, state)
+    elif cmd == "start":
+        await cmd_start(message, state)
+    elif cmd == "help":
+        await cmd_help(message)
+    elif cmd == "joinplaylist":
+        await cmd_joinplaylist(message, state)
+    # All other commands: state cleared, aiogram can't re-dispatch,
+    # but at least the search won't fire. User can resend the command.
+    elif is_admin(message.from_user.id):
+        if cmd == "users":
+            await cmd_users(message)
+        elif cmd == "ban":
+            await cmd_ban(message)
+        elif cmd == "unban":
+            await cmd_unban(message)
+        elif cmd == "tempban":
+            await cmd_tempban(message, state)
+        elif cmd == "appeals":
+            await cmd_appeals(message)
+        elif cmd == "msguser":
+            await cmd_msguser(message, state)
+        elif cmd == "viewlib":
+            await cmd_viewlib(message)
+        elif cmd == "viewplaylists":
+            await cmd_viewplaylists(message)
+        elif cmd == "addadmin" and is_owner(message.from_user.id):
+            await cmd_addadmin(message)
+        elif cmd == "removeadmin" and is_owner(message.from_user.id):
+            await cmd_removeadmin(message)
+        elif cmd == "stats":
+            await cmd_stats(message)
+
+
+@dp.message(S.searching, F.text, ~F.text.startswith("/"))
+async def do_search_state(message: Message, state: FSMContext):
+    uid = message.from_user.id
+    txt = message.text.strip()
+    # If user pressed any menu button instead of typing a query — cancel search and handle it
+    if txt in _all_btn_texts() or txt == "👮 Панель админа":
+        await state.clear()
+        # Handle common buttons directly
+        if _is_btn(uid, "btn_library", txt):
+            await show_library(message)
+        elif _is_btn(uid, "btn_playlists", txt):
+            await show_playlists(message)
+        elif _is_btn(uid, "btn_random", txt):
+            await random_track(message)
+        elif _is_btn(uid, "btn_top", txt):
+            await show_top(message)
+        elif _is_btn(uid, "btn_support", txt):
+            await support_start(message, state)
+        elif _is_btn(uid, "btn_help", txt):
+            await message.answer(t(uid, "help"), parse_mode="Markdown")
+        elif _is_btn(uid, "btn_owner", txt) and is_owner(uid):
+            await owner_panel(message)
+        elif (_is_btn(uid, "btn_maint_on", txt) or _is_btn(uid, "btn_maint_off", txt)) and is_owner(uid):
+            await toggle_maintenance(message)
+        elif txt == "👮 Панель админа" and is_admin(uid):
+            await admin_panel(message)
+        elif _is_btn(uid, "btn_search", txt):
+            await state.set_state(S.searching)
+            await message.answer(t(uid, "search_prompt"))
+        return
+    await state.clear()
+    await _do_search(message, txt)
 
 
 @dp.message(F.text)

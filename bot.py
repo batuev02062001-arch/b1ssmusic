@@ -833,25 +833,6 @@ async def tempban_apply(message: Message, state: FSMContext):
 #  AUTO SEARCH (must be after all FSM)
 # ══════════════════════════════════════════
 
-@dp.message(F.text & ~F.text.startswith("/"))
-async def auto_handler(message: Message, state: FSMContext):
-    uid     = message.from_user.id
-    current = await state.get_state()
-    txt     = message.text.strip()
-
-    # If in any FSM state — ignore (FSM handlers above will catch)
-    if current is not None:
-        return
-
-    # Button texts — handled by dedicated handlers
-    if txt in _all_btn_texts():
-        return
-
-    # Everything else = search
-    if len(txt) >= 2:
-        await _do_search(message, txt)
-
-
 async def _do_search(message: Message, query: str):
     uid = message.from_user.id
     db.ensure_user(uid, message.from_user.username)
@@ -959,6 +940,12 @@ def _is_btn(uid: int, key: str, text: str) -> bool:
     return False
 
 
+@dp.message(S.searching)
+async def do_search_state(message: Message, state: FSMContext):
+    await state.clear()
+    await _do_search(message, message.text.strip())
+
+
 @dp.message(F.text)
 async def btn_router(message: Message, state: FSMContext):
     uid  = message.from_user.id
@@ -1003,12 +990,6 @@ async def btn_router(message: Message, state: FSMContext):
 
     elif len(txt) >= 2:
         await _do_search(message, txt)
-
-
-@dp.message(S.searching)
-async def do_search_state(message: Message, state: FSMContext):
-    await state.clear()
-    await _do_search(message, message.text.strip())
 
 
 # ══════════════════════════════════════════

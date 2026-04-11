@@ -569,14 +569,26 @@ async def send_audio_track(chat_id: int, track: dict, in_library: bool,
         await bot.send_message(chat_id, t(uid or chat_id, "load_fail"))
         return
     db.record_play(track_id)
-    caption = t(uid or chat_id, "share_caption",
-                artist=track["artist"], title=track["title"], link=BOT_LINK)
+
+    # Экранируем спецсимволы Markdown в названии и исполнителе
+    def _esc(s: str) -> str:
+        for c in ['_', '*', '[', ']', '`']:
+            s = s.replace(c, '\\' + c)
+        return s
+
+    artist  = _esc(track.get("artist", ""))
+    title   = _esc(track.get("title", ""))
+    caption = f"🎵 *{artist}* — {title}\n\n🤖 {BOT_LINK}"
+
+    # Безопасный filename
+    safe_name = f"{track.get('artist','')} - {track.get('title','')}.mp3"
+    safe_name = "".join(c for c in safe_name if c not in r'\/:*?"<>|')
+
     await bot.send_audio(
         chat_id=chat_id,
-        audio=BufferedInputFile(audio_bytes,
-                                filename=f"{track['artist']} - {track['title']}.mp3"),
-        title=track["title"],
-        performer=track["artist"],
+        audio=BufferedInputFile(audio_bytes, filename=safe_name),
+        title=track.get("title",""),
+        performer=track.get("artist",""),
         duration=track.get("duration_sec"),
         caption=caption,
         parse_mode="Markdown",
@@ -940,81 +952,10 @@ def _is_btn(uid: int, key: str, text: str) -> bool:
     return False
 
 
-@dp.message(S.searching, F.text.startswith("/"))
-async def do_search_state_command(message: Message, state: FSMContext):
-    """When a command is sent while in searching state, clear FSM and handle the command."""
-    await state.clear()
-    cmd = message.text.split()[0].lstrip("/").split("@")[0].lower()
-    # Route known commands that could be affected
-    if cmd == "broadcast" and is_owner(message.from_user.id):
-        await cmd_broadcast(message, state)
-    elif cmd == "cancel":
-        await cmd_cancel(message, state)
-    elif cmd == "start":
-        await cmd_start(message, state)
-    elif cmd == "help":
-        await cmd_help(message)
-    elif cmd == "joinplaylist":
-        await cmd_joinplaylist(message, state)
-    # All other commands: state cleared, aiogram can't re-dispatch,
-    # but at least the search won't fire. User can resend the command.
-    elif is_admin(message.from_user.id):
-        if cmd == "users":
-            await cmd_users(message)
-        elif cmd == "ban":
-            await cmd_ban(message)
-        elif cmd == "unban":
-            await cmd_unban(message)
-        elif cmd == "tempban":
-            await cmd_tempban(message, state)
-        elif cmd == "appeals":
-            await cmd_appeals(message)
-        elif cmd == "msguser":
-            await cmd_msguser(message, state)
-        elif cmd == "viewlib":
-            await cmd_viewlib(message)
-        elif cmd == "viewplaylists":
-            await cmd_viewplaylists(message)
-        elif cmd == "addadmin" and is_owner(message.from_user.id):
-            await cmd_addadmin(message)
-        elif cmd == "removeadmin" and is_owner(message.from_user.id):
-            await cmd_removeadmin(message)
-        elif cmd == "stats":
-            await cmd_stats(message)
-
-
-@dp.message(S.searching, F.text, ~F.text.startswith("/"))
+@dp.message(S.searching)
 async def do_search_state(message: Message, state: FSMContext):
-    uid = message.from_user.id
-    txt = message.text.strip()
-    # If user pressed any menu button instead of typing a query — cancel search and handle it
-    if txt in _all_btn_texts() or txt == "👮 Панель админа":
-        await state.clear()
-        # Handle common buttons directly
-        if _is_btn(uid, "btn_library", txt):
-            await show_library(message)
-        elif _is_btn(uid, "btn_playlists", txt):
-            await show_playlists(message)
-        elif _is_btn(uid, "btn_random", txt):
-            await random_track(message)
-        elif _is_btn(uid, "btn_top", txt):
-            await show_top(message)
-        elif _is_btn(uid, "btn_support", txt):
-            await support_start(message, state)
-        elif _is_btn(uid, "btn_help", txt):
-            await message.answer(t(uid, "help"), parse_mode="Markdown")
-        elif _is_btn(uid, "btn_owner", txt) and is_owner(uid):
-            await owner_panel(message)
-        elif (_is_btn(uid, "btn_maint_on", txt) or _is_btn(uid, "btn_maint_off", txt)) and is_owner(uid):
-            await toggle_maintenance(message)
-        elif txt == "👮 Панель админа" and is_admin(uid):
-            await admin_panel(message)
-        elif _is_btn(uid, "btn_search", txt):
-            await state.set_state(S.searching)
-            await message.answer(t(uid, "search_prompt"))
-        return
     await state.clear()
-    await _do_search(message, txt)
+    await _do_search(message, message.text.strip())
 
 
 @dp.message(F.text)
@@ -1538,35 +1479,22 @@ async def admin_panel(message: Message):
     if not is_admin(uid): return
     appeals = db.get_pending_appeals()
     appeal_note = f"\n📝 Апелляций на рассмотрении: *{len(appeals)}*" if appeals else ""
-    owner_cmds = (
-        "\n\n👑 *Только владелец:*\n"
-        "/addadmin `<id>` — назначить администратора\n"
-        "/removeadmin `<id>` — снять права администратора\n"
-        "/broadcast — рассылка всем пользователям\n"
-        "/stats — статистика бота"
-    ) if is_owner(uid) else ""
     await message.answer(
-        "👮 *Панель администратора*\n\n"
+        "👮 *Панель админа*\n\n"
         f"👥 Пользователей: *{db.get_users_count()}*\n"
-        f"🚫 Заблокировано: *{db.get_banned_count()}*"
-        f"{appeal_note}\n\n"
+        f"🚫 Заблокировано: *{db.get_banned_count()}*{appeal_note}\n\n"
         "━━━━━━━━━━━━━━━━\n"
-        "👤 *Пользователи:*\n"
-        "/users — список всех пользователей\n"
-        "/viewlib `<id>` — библиотека пользователя\n"
-        "/viewplaylists `<id>` — плейлисты пользователя\n"
-        "/msguser — отправить сообщение пользователю\n\n"
-        "🚫 *Баны:*\n"
+        "*Команды:*\n"
+        "/users — список пользователей\n"
         "/ban `<id>` — перманентный бан\n"
-        "/unban `<id>` — снять бан\n"
-        "/tempban — временный бан (1h / 7d / 30d)\n\n"
-        "📝 *Апелляции:*\n"
-        "/appeals — апелляции на рассмотрении\n\n"
-        "⚙️ *Общие:*\n"
-        "/start — перезапустить бота\n"
-        "/help — справка для пользователей\n"
-        "/cancel — отменить текущее действие"
-        f"{owner_cmds}",
+        "/unban `<id>` — разбан\n"
+        "/tempban — временный бан\n"
+        "/appeals — список апелляций\n"
+        "/msguser — написать пользователю\n"
+        "/viewlib `<id>` — библиотека пользователя\n"
+        "/viewplaylists `<id>` — плейлисты пользователя"
+        + ("\n/addadmin `<id>` — назначить админа\n/removeadmin `<id>` — снять админа\n/broadcast — рассылка"
+           if is_owner(uid) else ""),
         parse_mode="Markdown"
     )
 

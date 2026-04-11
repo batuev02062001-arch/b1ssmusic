@@ -565,23 +565,48 @@ def kb_appeal(appeal_id: int, user_id: int):
 
 async def send_audio_track(chat_id: int, track: dict, in_library: bool,
                            uid: int = None):
-    track_id = track.get("track_id","")
-    status   = await bot.send_message(chat_id, t(uid or chat_id, "loading"))
+    from search import _get_stream_url
+    track_id = track.get("track_id", "")
+    sc_id    = track.get("_sc_id") or track.get("sc_id")
+    if not sc_id:
+        saved = db.get_track(track_id)
+        if saved:
+            sc_id = saved.get("_sc_id") or saved.get("sc_id")
+
+    artist  = track.get("artist", "")
+    title   = track.get("title", "")
+    caption = f"🎵 {artist} — {title}\n\n🤖 {BOT_LINK}"
+    safe_name = "".join(c for c in f"{artist} - {title}.mp3" if c not in r'\/:*?"<>|')
+
+    status = await bot.send_message(chat_id, t(uid or chat_id, "loading"))
+
+    # Способ 1: прямая ссылка — Telegram скачивает сам (быстро)
+    if sc_id:
+        stream_url = await _get_stream_url(int(sc_id))
+        if stream_url:
+            try:
+                await status.delete()
+                db.record_play(track_id)
+                await bot.send_audio(
+                    chat_id=chat_id,
+                    audio=stream_url,
+                    title=title,
+                    performer=artist,
+                    duration=track.get("duration_sec"),
+                    caption=caption,
+                    reply_markup=kb_track_actions(track_id, in_library, uid or chat_id),
+                )
+                return
+            except Exception:
+                pass  # fallback to download
+
+    # Способ 2: скачиваем сами и отправляем файлом
     audio_bytes = await download_track(track)
     await status.delete()
     if audio_bytes is None:
         await bot.send_message(chat_id, t(uid or chat_id, "load_fail"))
         return
     db.record_play(track_id)
-
-    artist  = track.get("artist", "")
-    title   = track.get("title", "")
-    caption = f"🎵 {artist} — {title}\n\n🤖 {BOT_LINK}"
-
-    # Безопасный filename
-    safe_name = f"{artist} - {title}.mp3"
-    safe_name = "".join(c for c in safe_name if c not in r'\/:*?"<>|')
-
     await bot.send_audio(
         chat_id=chat_id,
         audio=BufferedInputFile(audio_bytes, filename=safe_name),

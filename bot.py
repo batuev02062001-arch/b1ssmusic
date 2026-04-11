@@ -693,8 +693,13 @@ async def pl_do_rename(message: Message, state: FSMContext):
 
 @dp.message(S.playlist_join, F.text)
 async def pl_join_by_code(message: Message, state: FSMContext):
-    code = message.text.strip().upper()
-    uid  = message.from_user.id
+    txt = message.text.strip()
+    uid = message.from_user.id
+    if txt in _BTN_VALUES:
+        await state.clear()
+        await btn_router(message, state)
+        return
+    code = txt.upper()
     await state.clear()
     pl = db.get_playlist_by_code(code)
     if not pl:
@@ -1036,14 +1041,13 @@ def _all_btn_values() -> set:
         for k, v in lang_dict.items():
             if k.startswith("btn_") and v:
                 result.add(v.strip())
+    result.add("👮 Панель админа")
     return result
 
-_BTN_VALUES: set = None
+# Инициализируем сразу, не лениво
+_BTN_VALUES: set = _all_btn_values()
 
 def _get_btn_values() -> set:
-    global _BTN_VALUES
-    if _BTN_VALUES is None:
-        _BTN_VALUES = _all_btn_values()
     return _BTN_VALUES
 
 

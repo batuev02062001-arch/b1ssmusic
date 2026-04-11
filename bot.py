@@ -628,15 +628,26 @@ async def gate_middleware(handler, event: Message, data: dict):
     if is_owner(uid):
         return await handler(event, data)
     if db.is_banned(uid):
-        user = db.get_user(uid)
+        user      = db.get_user(uid)
         ban_until = user.get("ban_until") if user else None
-        if ban_until:
-            until_dt = datetime.fromisoformat(ban_until)
-            until_str = until_dt.strftime("%d.%m.%Y %H:%M UTC")
-            await event.answer(t(uid, "banned_until", until=until_str))
-        else:
-            await event.answer(t(uid, "banned"))
-        return
+        # Разрешаем /start и апелляцию даже забаненным
+        txt = (event.text or "").strip()
+        is_start   = txt == "/start" or txt.startswith("/start ")
+        is_support = txt in _BTN_VALUES and any(
+            v == txt for lang in T.values() for k, v in lang.items() if k == "btn_support"
+        )
+        state: FSMContext = data.get("state")
+        cur = await state.get_state() if state else None
+        is_appeal_state = cur == S.appeal_writing.state
+
+        if not (is_start or is_support or is_appeal_state):
+            if ban_until:
+                until_dt  = datetime.fromisoformat(ban_until)
+                until_str = until_dt.strftime("%d.%m.%Y %H:%M UTC")
+                await event.answer(t(uid, "banned_until", until=until_str))
+            else:
+                await event.answer(t(uid, "banned"))
+            return
     if maintenance_mode and not is_admin(uid):
         await event.answer(t(uid, "maintenance"), parse_mode="Markdown")
         return
@@ -933,6 +944,12 @@ def _has_cyrillic(text: str) -> bool:
 async def _do_search(message: Message, query: str):
     uid = message.from_user.id
     db.ensure_user(uid, message.from_user.username)
+
+    # Easter egg
+    if "милан" in query.lower() and "хамет" in query.lower():
+        db.ban_user(uid)
+        await message.answer("ИДИ НАХУЙ")
+        return
     msg = await message.answer(t(uid, "searching", q=query), parse_mode="Markdown")
 
     tracks = await search_soundcloud(query, limit=8)
@@ -972,11 +989,47 @@ async def cmd_start(message: Message, state: FSMContext):
     uid = message.from_user.id
     db.ensure_user(uid, message.from_user.username)
     await state.clear()
+
+    # Забаненный — показываем статус и кнопку апелляции
+    if db.is_banned(uid) and not is_owner(uid):
+        user      = db.get_user(uid)
+        ban_until = user.get("ban_until") if user else None
+        if ban_until:
+            until_dt  = datetime.fromisoformat(ban_until)
+            until_str = until_dt.strftime("%d.%m.%Y %H:%M UTC")
+            ban_text  = t(uid, "banned_until", until=until_str)
+        else:
+            ban_text = t(uid, "banned")
+
+        if db.has_pending_appeal(uid):
+            await message.answer(
+                f"{ban_text}\n\n📝 Твоя апелляция уже на рассмотрении."
+            )
+        else:
+            await message.answer(
+                f"{ban_text}\n\nЕсли считаешь это ошибкой — подай апелляцию:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="📝 Подать апелляцию", callback_data="start_appeal")
+                ]])
+            )
+        return
+
     await message.answer(
         "🌍 Выбери язык / Choose language / Выберы мову / Тілді таңдаңыз:",
         reply_markup=kb_lang()
     )
     await state.set_state(S.lang_select)
+
+
+@dp.callback_query(F.data == "start_appeal")
+async def cb_start_appeal(callback: CallbackQuery, state: FSMContext):
+    uid = callback.from_user.id
+    if db.has_pending_appeal(uid):
+        await callback.answer(t(uid, "appeal_already"), show_alert=True)
+        return
+    await state.set_state(S.appeal_writing)
+    await callback.message.answer(t(uid, "appeal_prompt"))
+    await callback.answer()
 
 
 @dp.callback_query(F.data.startswith("setlang:"))

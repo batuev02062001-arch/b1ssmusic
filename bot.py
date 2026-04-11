@@ -978,9 +978,28 @@ async def cmd_joinplaylist(message: Message, state: FSMContext):
 
 def _is_btn(uid: int, key: str, text: str) -> bool:
     for lang_dict in T.values():
-        if lang_dict.get(key) == text:
+        val = lang_dict.get(key, "")
+        if val and val.strip() == text.strip():
             return True
     return False
+
+
+# Собираем все тексты кнопок в один set для быстрой проверки
+def _all_btn_values() -> set:
+    result = set()
+    for lang_dict in T.values():
+        for k, v in lang_dict.items():
+            if k.startswith("btn_") and v:
+                result.add(v.strip())
+    return result
+
+_BTN_VALUES: set = None
+
+def _get_btn_values() -> set:
+    global _BTN_VALUES
+    if _BTN_VALUES is None:
+        _BTN_VALUES = _all_btn_values()
+    return _BTN_VALUES
 
 
 @dp.message(S.searching)
@@ -1031,7 +1050,8 @@ async def btn_router(message: Message, state: FSMContext):
     elif txt == "👮 Панель админа" and is_admin(uid):
         await admin_panel(message)
 
-    elif len(txt) >= 2:
+    # Поиск только если текст НЕ является кнопкой ни на одном языке
+    elif txt not in _get_btn_values() and len(txt) >= 2:
         await _do_search(message, txt)
 
 

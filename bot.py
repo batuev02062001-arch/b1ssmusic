@@ -570,28 +570,21 @@ async def send_audio_track(chat_id: int, track: dict, in_library: bool,
         return
     db.record_play(track_id)
 
-    # Экранируем спецсимволы Markdown в названии и исполнителе
-    def _esc(s: str) -> str:
-        for c in ['_', '*', '[', ']', '`']:
-            s = s.replace(c, '\\' + c)
-        return s
-
-    artist  = _esc(track.get("artist", ""))
-    title   = _esc(track.get("title", ""))
-    caption = f"🎵 *{artist}* — {title}\n\n🤖 {BOT_LINK}"
+    artist  = track.get("artist", "")
+    title   = track.get("title", "")
+    caption = f"🎵 {artist} — {title}\n\n🤖 {BOT_LINK}"
 
     # Безопасный filename
-    safe_name = f"{track.get('artist','')} - {track.get('title','')}.mp3"
+    safe_name = f"{artist} - {title}.mp3"
     safe_name = "".join(c for c in safe_name if c not in r'\/:*?"<>|')
 
     await bot.send_audio(
         chat_id=chat_id,
         audio=BufferedInputFile(audio_bytes, filename=safe_name),
-        title=track.get("title",""),
-        performer=track.get("artist",""),
+        title=title,
+        performer=artist,
         duration=track.get("duration_sec"),
         caption=caption,
-        parse_mode="Markdown",
         reply_markup=kb_track_actions(track_id, in_library, uid or chat_id),
     )
 

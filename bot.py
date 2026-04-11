@@ -617,13 +617,17 @@ async def gate_middleware(handler, event: Message, data: dict):
 
 @dp.message.middleware()
 async def fsm_command_reset_middleware(handler, event: Message, data: dict):
-    """Сбрасывает FSM при любой команде кроме /cancel."""
-    if event.text and event.text.startswith("/") and not event.text.startswith("/cancel"):
-        state: FSMContext = data.get("state")
-        if state:
-            cur = await state.get_state()
-            if cur is not None:
-                await state.clear()
+    """Сбрасывает FSM при командах и нажатии кнопок меню."""
+    if event.text:
+        txt = event.text.strip()
+        is_cmd = txt.startswith("/") and not txt.startswith("/cancel")
+        is_menu_btn = txt in _get_btn_values() or txt == "👮 Панель админа"
+        if is_cmd or is_menu_btn:
+            state: FSMContext = data.get("state")
+            if state:
+                cur = await state.get_state()
+                if cur is not None:
+                    await state.clear()
     return await handler(event, data)
 
 
@@ -784,8 +788,13 @@ async def broadcast_send(message: Message, state: FSMContext):
 @dp.message(S.admin_msg_id, F.text)
 async def admin_msg_get_id(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
+    txt = message.text.strip()
+    if txt in _get_btn_values():
+        await state.clear()
+        await btn_router(message, state)
+        return
     try:
-        target_id = int(message.text.strip())
+        target_id = int(txt)
     except ValueError:
         await message.answer("❌ Некорректный ID.")
         return
@@ -812,8 +821,13 @@ async def admin_msg_send(message: Message, state: FSMContext):
 @dp.message(S.tempban_id, F.text)
 async def tempban_get_id(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
+    txt = message.text.strip()
+    if txt in _get_btn_values():
+        await state.clear()
+        await btn_router(message, state)
+        return
     try:
-        target_id = int(message.text.strip())
+        target_id = int(txt)
     except ValueError:
         await message.answer("❌ Некорректный ID.")
         return

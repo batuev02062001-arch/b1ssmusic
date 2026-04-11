@@ -483,7 +483,10 @@ def kb_playlists(playlists: list, page: int = 0, page_size: int = 6):
     if end < total:
         nav.append(InlineKeyboardButton(text="▶️", callback_data=f"plpage:{page+1}"))
     if nav: btns.append(nav)
-    btns.append([InlineKeyboardButton(text="➕ Новый / New", callback_data="pl_create")])
+    btns.append([
+        InlineKeyboardButton(text="➕ Новый / New", callback_data="pl_create"),
+        InlineKeyboardButton(text="🔗 По коду / By code", callback_data="pl_join_start"),
+    ])
     return InlineKeyboardMarkup(inline_keyboard=btns)
 
 
@@ -1248,7 +1251,8 @@ async def show_playlists(message: Message):
             t(uid, "no_playlists", lim=PLAYLIST_LIMIT),
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="➕ Новый / New", callback_data="pl_create")
+                InlineKeyboardButton(text="➕ Новый / New", callback_data="pl_create"),
+                InlineKeyboardButton(text="🔗 По коду / By code", callback_data="pl_join_start"),
             ]])
         )
         return
@@ -1276,7 +1280,8 @@ async def cb_pl_back(callback: CallbackQuery):
             t(uid, "no_playlists", lim=PLAYLIST_LIMIT),
             parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-                InlineKeyboardButton(text="➕ Новый / New", callback_data="pl_create")
+                InlineKeyboardButton(text="➕ Новый / New", callback_data="pl_create"),
+                InlineKeyboardButton(text="🔗 По коду / By code", callback_data="pl_join_start"),
             ]])
         )
     else:
@@ -1285,6 +1290,14 @@ async def cb_pl_back(callback: CallbackQuery):
             parse_mode="Markdown",
             reply_markup=kb_playlists(pls)
         )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "pl_join_start")
+async def cb_pl_join_start(callback: CallbackQuery, state: FSMContext):
+    uid = callback.from_user.id
+    await state.set_state(S.playlist_join)
+    await callback.message.answer(t(uid, "pl_join_prompt"))
     await callback.answer()
 
 

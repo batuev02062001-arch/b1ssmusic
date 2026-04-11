@@ -630,24 +630,35 @@ async def gate_middleware(handler, event: Message, data: dict):
     if db.is_banned(uid):
         user      = db.get_user(uid)
         ban_until = user.get("ban_until") if user else None
-        # Разрешаем /start и апелляцию даже забаненным
         txt = (event.text or "").strip()
-        is_start   = txt == "/start" or txt.startswith("/start ")
-        is_support = txt in _BTN_VALUES and any(
-            v == txt for lang in T.values() for k, v in lang.items() if k == "btn_support"
-        )
+        is_start = txt == "/start" or txt.startswith("/start ")
         state: FSMContext = data.get("state")
         cur = await state.get_state() if state else None
         is_appeal_state = cur == S.appeal_writing.state
 
-        if not (is_start or is_support or is_appeal_state):
-            if ban_until:
-                until_dt  = datetime.fromisoformat(ban_until)
-                until_str = until_dt.strftime("%d.%m.%Y %H:%M UTC")
-                await event.answer(t(uid, "banned_until", until=until_str))
-            else:
-                await event.answer(t(uid, "banned"))
-            return
+        if is_start or is_appeal_state:
+            return await handler(event, data)
+
+        # Показываем сообщение с кнопкой или без
+        if ban_until:
+            until_dt  = datetime.fromisoformat(ban_until)
+            until_str = until_dt.strftime("%d.%m.%Y %H:%M UTC")
+            ban_text  = t(uid, "banned_until", until=until_str)
+        else:
+            ban_text = t(uid, "banned")
+
+        if db.has_pending_appeal(uid):
+            await event.answer(
+                f"{ban_text}\n\n📝 Твоя апелляция на рассмотрении. Ожидай ответа администрации."
+            )
+        else:
+            await event.answer(
+                ban_text,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="📝 Подать апелляцию", callback_data="start_appeal")
+                ]])
+            )
+        return
     if maintenance_mode and not is_admin(uid):
         await event.answer(t(uid, "maintenance"), parse_mode="Markdown")
         return

@@ -1500,15 +1500,37 @@ async def owner_panel(message: Message):
     if not is_owner(message.from_user.id): return
     uid    = message.from_user.id
     status = "🔴 Включены" if maintenance_mode else "🟢 Выключены"
+    appeals = db.get_pending_appeals()
+    appeal_note = f"\n📝 Апелляций на рассмотрении: *{len(appeals)}*" if appeals else ""
     await message.answer(
         "👑 *Панель владельца*\n\n"
-        f"👥 Пользователей: *{db.get_users_count()}*\n"
-        f"🚫 Заблокировано: *{db.get_banned_count()}*\n"
-        f"🎵 Треков: *{db.get_tracks_count()}*\n"
-        f"💾 Сохранений: *{db.get_library_total()}*\n"
-        f"🎶 Плейлистов: *{db.get_playlists_total()}*\n"
-        f"🔧 Техработы: {status}\n\n"
-        "Используй команды из панели админа + /addadmin /removeadmin /broadcast",
+        "📊 *Статистика:*\n"
+        f"  👥 Пользователей: *{db.get_users_count()}*\n"
+        f"  🚫 Заблокировано: *{db.get_banned_count()}*\n"
+        f"  🎵 Треков в каталоге: *{db.get_tracks_count()}*\n"
+        f"  💾 Сохранений в библиотеках: *{db.get_library_total()}*\n"
+        f"  🎶 Плейлистов создано: *{db.get_playlists_total()}*\n"
+        f"  🔧 Техработы: {status}{appeal_note}\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "📋 *Все команды:*\n\n"
+        "👥 *Пользователи:*\n"
+        "/users — список всех пользователей\n"
+        "/ban `<id>` — перманентный бан\n"
+        "/unban `<id>` — разбан\n"
+        "/tempban — временный бан (1h/7d/30d)\n"
+        "/appeals — апелляции на рассмотрении\n\n"
+        "💬 *Сообщения:*\n"
+        "/msguser — написать пользователю по ID\n"
+        "/broadcast — рассылка всем пользователям\n\n"
+        "📚 *Просмотр данных:*\n"
+        "/viewlib `<id>` — библиотека пользователя\n"
+        "/viewplaylists `<id>` — плейлисты пользователя\n"
+        "/stats — подробная статистика\n\n"
+        "👮 *Администраторы (только владелец):*\n"
+        "/addadmin `<id>` — назначить администратора\n"
+        "/removeadmin `<id>` — снять администратора\n\n"
+        "🔧 *Управление ботом:*\n"
+        "Кнопка 🔴/🟢 — включить/выключить техработы",
         parse_mode="Markdown",
         reply_markup=kb_main(uid)
     )

@@ -947,20 +947,11 @@ async def cmd_start(message: Message, state: FSMContext):
     uid = message.from_user.id
     db.ensure_user(uid, message.from_user.username)
     await state.clear()
-    # Ask language if first time
-    user = db.get_user(uid)
-    if not user or not user.get("lang"):
-        await message.answer(
-            "🌍 Выбери язык / Choose language / Выберы мову / Тілді таңдаңыз:",
-            reply_markup=kb_lang()
-        )
-        await state.set_state(S.lang_select)
-        return
     await message.answer(
-        t(uid, "welcome", name=message.from_user.first_name),
-        parse_mode="Markdown",
-        reply_markup=kb_main(uid)
+        "🌍 Выбери язык / Choose language / Выберы мову / Тілді таңдаңыз:",
+        reply_markup=kb_lang()
     )
+    await state.set_state(S.lang_select)
 
 
 @dp.callback_query(F.data.startswith("setlang:"))

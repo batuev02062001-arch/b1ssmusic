@@ -867,11 +867,13 @@ async def _do_search(message: Message, query: str):
 
     tracks = await search_soundcloud(query, limit=8)
 
-    # Если запрос на кириллице и мало результатов — ищем транслитом тоже
+    # Если запрос на кириллице — ищем транслитом параллельно
     if _has_cyrillic(query):
         translit_query = _translit(query)
-        translit_tracks = await search_soundcloud(translit_query, limit=8)
-        # Объединяем, убирая дубли по track_id
+        tracks, translit_tracks = await asyncio.gather(
+            search_soundcloud(query, limit=6),
+            search_soundcloud(translit_query, limit=6)
+        )
         seen = {tr["track_id"] for tr in tracks}
         for tr in translit_tracks:
             if tr["track_id"] not in seen:

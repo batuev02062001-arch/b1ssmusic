@@ -103,9 +103,10 @@ class Database:
             """)
             # Миграции для старых БД
             for col, definition in [
-                ("lang",      "TEXT NOT NULL DEFAULT 'ru'"),
-                ("ban_until", "TEXT"),
-                ("is_admin",  "INTEGER NOT NULL DEFAULT 0"),
+                ("lang",       "TEXT NOT NULL DEFAULT 'ru'"),
+                ("ban_until",  "TEXT"),
+                ("is_admin",   "INTEGER NOT NULL DEFAULT 0"),
+                ("ban_reason", "TEXT"),
             ]:
                 try:
                     conn.execute(f"ALTER TABLE users ADD COLUMN {col} {definition}")
@@ -184,13 +185,13 @@ class Database:
                 return False
         return True
 
-    def ban_user(self, user_id: int, until: Optional[str] = None):
+    def ban_user(self, user_id: int, until: Optional[str] = None, reason: Optional[str] = None):
         """until — ISO datetime строка или None (перманентный бан)."""
         self.ensure_user(user_id)
         with self._conn() as conn:
             conn.execute(
-                "UPDATE users SET is_banned=1, ban_until=? WHERE user_id=?",
-                (until, user_id)
+                "UPDATE users SET is_banned=1, ban_until=?, ban_reason=? WHERE user_id=?",
+                (until, reason, user_id)
             )
 
     def unban_user(self, user_id: int):

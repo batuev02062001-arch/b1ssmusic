@@ -106,6 +106,7 @@ class S(StatesGroup):
     admin_msg_text         = State()
     tempban_id             = State()
     tempban_duration       = State()
+    ban_reason             = State()
 
 
 # ══════════════════════════════════════════
@@ -900,28 +901,45 @@ async def tempban_apply(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     data      = await state.get_data()
     target_id = data.get("tempban_target")
-    await state.clear()
-    text = message.text.strip().lower()
+    text      = message.text.strip()
+
+    # Парсим длительность + опциональная причина через пробел
+    # Формат: "7d" или "7d спам"
+    parts  = text.split(maxsplit=1)
+    dur    = parts[0].lower()
+    reason = parts[1] if len(parts) > 1 else None
+
     try:
-        if text.endswith("h"):
-            delta = timedelta(hours=int(text[:-1]))
-        elif text.endswith("d"):
-            delta = timedelta(days=int(text[:-1]))
+        if dur.endswith("h"):
+            delta = timedelta(hours=int(dur[:-1]))
+        elif dur.endswith("d"):
+            delta = timedelta(days=int(dur[:-1]))
         else:
             raise ValueError
     except ValueError:
-        await message.answer("❌ Неверный формат. Используй: 1h, 24h, 7d")
+        await message.answer("❌ Неверный формат. Используй: 1h, 24h, 7d [причина]")
         return
-    until = (datetime.now(timezone.utc) + delta).isoformat()
-    db.ban_user(target_id, until=until)
+
+    await state.clear()
+    until     = (datetime.now(timezone.utc) + delta).isoformat()
     until_str = (datetime.now(timezone.utc) + delta).strftime("%d.%m.%Y %H:%M UTC")
+    db.ban_user(target_id, until=until, reason=reason)
+
+    reason_text = f"\nПричина: {reason}" if reason else ""
     await message.answer(
-        f"⏱ Пользователь `{target_id}` временно забанен до *{until_str}*.",
+        f"⏱ Пользователь `{target_id}` забанен до *{until_str}*.{reason_text}",
         parse_mode="Markdown"
     )
     try:
-        await bot.send_message(target_id,
-            t(target_id, "banned_until", until=until_str))
+        ban_msg = t(target_id, "banned_until", until=until_str)
+        if reason:
+            ban_msg += f"\n\nПричина: {reason}"
+        await bot.send_message(
+            target_id, ban_msg,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="📝 Подать апелляцию", callback_data="start_appeal")
+            ]])
+        )
     except Exception:
         pass
 
@@ -1718,9 +1736,9 @@ async def owner_panel(message: Message):
         "📋 *Все команды:*\n\n"
         "👥 *Пользователи:*\n"
         "/users — список всех пользователей\n"
-        "/ban `<id>` — перманентный бан\n"
+        "/ban `<id>` [причина] — перманентный бан\n"
         "/unban `<id>` — разбан\n"
-        "/tempban — временный бан (1h/7d/30d)\n"
+        "/tempban — временный бан (формат: `7d спам`)\n"
         "/appeals — апелляции на рассмотрении\n\n"
         "💬 *Сообщения:*\n"
         "/msguser — написать пользователю по ID\n"
@@ -1773,23 +1791,75 @@ async def cmd_users(message: Message):
 
 
 @dp.message(Command("ban"))
-async def cmd_ban(message: Message):
+async def cmd_ban(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
     parts = message.text.split()
     if len(parts) < 2:
-        await message.answer("Использование: /ban `<id>`", parse_mode="Markdown"); return
+        await message.answer("Использование: /ban `<id>` [причина]", parse_mode="Markdown"); return
     try:
         tid = int(parts[1])
     except ValueError:
         await message.answer("❌ Некорректный ID."); return
     if tid == OWNER_ID:
         await message.answer("❌ Нельзя забанить владельца."); return
-    db.ban_user(tid)
-    await message.answer(f"🚫 Пользователь `{tid}` забанен.", parse_mode="Markdown")
+
+    # Если причина указана сразу в команде
+    reason = " ".join(parts[2:]) if len(parts) > 2 else None
+
+    if reason:
+        await _do_ban(message, tid, reason=reason)
+    else:
+        await state.set_state(S.ban_reason)
+        await state.update_data(ban_target=tid)
+        await message.answer(
+            f"❓ Укажи причину бана для `{tid}` или нажми /skip чтобы забанить без причины:",
+            parse_mode="Markdown"
+        )
+
+
+async def _do_ban(message: Message, tid: int, reason: Optional[str] = None):
+    db.ban_user(tid, reason=reason)
+    reason_text = f"\nПричина: {reason}" if reason else ""
+    await message.answer(f"🚫 Пользователь `{tid}` забанен.{reason_text}", parse_mode="Markdown")
     try:
-        await bot.send_message(tid, t(tid, "banned"))
+        ban_msg = t(tid, "banned")
+        if reason:
+            ban_msg += f"\n\nПричина: {reason}"
+        await bot.send_message(
+            tid, ban_msg,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="📝 Подать апелляцию", callback_data="start_appeal")
+            ]])
+        )
     except Exception:
         pass
+
+
+@dp.message(S.ban_reason, F.text)
+async def ban_reason_handler(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id): return
+    if message.text.strip() in _BTN_VALUES:
+        await state.clear()
+        await btn_router(message, state)
+        return
+    data   = await state.get_data()
+    tid    = data.get("ban_target")
+    reason = message.text.strip()
+    await state.clear()
+    await _do_ban(message, tid, reason=reason)
+
+
+@dp.message(Command("skip"))
+async def cmd_skip(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id): return
+    cur = await state.get_state()
+    if cur == S.ban_reason.state:
+        data = await state.get_data()
+        tid  = data.get("ban_target")
+        await state.clear()
+        await _do_ban(message, tid, reason=None)
+    else:
+        await message.answer("Нечего пропускать.")
 
 
 @dp.message(Command("unban"))

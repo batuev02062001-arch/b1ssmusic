@@ -620,6 +620,11 @@ async def gate_middleware(handler, event: Message, data: dict):
 
 @dp.message(S.playlist_naming, F.text)
 async def pl_set_name(message: Message, state: FSMContext):
+    txt = message.text.strip()
+    if txt in _get_btn_values():
+        await state.clear()
+        await btn_router(message, state)
+        return
     name    = message.text.strip()
     uid     = message.from_user.id
     pl_id, status = db.create_playlist(uid, name)
@@ -646,6 +651,11 @@ async def pl_set_name(message: Message, state: FSMContext):
 
 @dp.message(S.playlist_renaming, F.text)
 async def pl_do_rename(message: Message, state: FSMContext):
+    txt = message.text.strip()
+    if txt in _get_btn_values():
+        await state.clear()
+        await btn_router(message, state)
+        return
     data     = await state.get_data()
     pl_id    = data.get("rename_playlist_id")
     new_name = message.text.strip()
@@ -1004,8 +1014,14 @@ def _get_btn_values() -> set:
 
 @dp.message(S.searching)
 async def do_search_state(message: Message, state: FSMContext):
+    txt = message.text.strip() if message.text else ""
+    # Если написали кнопку меню — выходим из поиска и выполняем кнопку
+    if txt in _get_btn_values() or txt == "👮 Панель админа":
+        await state.clear()
+        await btn_router(message, state)
+        return
     await state.clear()
-    await _do_search(message, message.text.strip())
+    await _do_search(message, txt)
 
 
 @dp.message(F.text)

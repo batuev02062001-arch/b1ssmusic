@@ -166,6 +166,7 @@ T = {
             "🆘 *Поддержка* — написать нам\n\n"
             "*Команды:*\n"
             "/start — главное меню\n"
+            "/lang — сменить язык\n"
             "/joinplaylist — добавить плейлист по коду\n"
             "/cancel — отменить действие"
         ),
@@ -614,6 +615,18 @@ async def gate_middleware(handler, event: Message, data: dict):
     return await handler(event, data)
 
 
+@dp.message.middleware()
+async def fsm_command_reset_middleware(handler, event: Message, data: dict):
+    """Сбрасывает FSM при любой команде кроме /cancel."""
+    if event.text and event.text.startswith("/") and not event.text.startswith("/cancel"):
+        state: FSMContext = data.get("state")
+        if state:
+            cur = await state.get_state()
+            if cur is not None:
+                await state.clear()
+    return await handler(event, data)
+
+
 # ══════════════════════════════════════════
 #  FSM HANDLERS BEFORE AUTO-SEARCH
 # ══════════════════════════════════════════
@@ -949,15 +962,20 @@ async def cb_setlang(callback: CallbackQuery, state: FSMContext):
 async def cmd_cancel(message: Message, state: FSMContext):
     uid     = message.from_user.id
     current = await state.get_state()
+    await state.clear()
     if current:
-        await state.clear()
         await message.answer(t(uid, "cancelled"), reply_markup=kb_main(uid))
     else:
         await message.answer(t(uid, "nothing_to_cancel"))
 
 
-@dp.message(Command("help"))
-async def cmd_help(message: Message):
+@dp.message(Command("lang"))
+async def cmd_lang(message: Message, state: FSMContext):
+    await state.set_state(S.lang_select)
+    await message.answer(
+        "🌍 Выбери язык / Choose language / Выберы мову / Тілді таңдаңыз:",
+        reply_markup=kb_lang()
+    )
     uid = message.from_user.id
     await message.answer(t(uid, "help"), parse_mode="Markdown", reply_markup=kb_main(uid))
 

@@ -1024,7 +1024,7 @@ async def do_search_state(message: Message, state: FSMContext):
     await _do_search(message, txt)
 
 
-@dp.message(F.text)
+@dp.message(F.text & ~F.text.startswith("/"))
 async def btn_router(message: Message, state: FSMContext):
     uid  = message.from_user.id
     txt  = message.text.strip()

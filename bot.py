@@ -835,14 +835,50 @@ async def tempban_apply(message: Message, state: FSMContext):
 
 
 # ══════════════════════════════════════════
+#  TRANSLITERATION
+# ══════════════════════════════════════════
+
+_TRANSLIT = {
+    'а':'a','б':'b','в':'v','г':'g','д':'d','е':'e','ё':'yo','ж':'zh',
+    'з':'z','и':'i','й':'y','к':'k','л':'l','м':'m','н':'n','о':'o',
+    'п':'p','р':'r','с':'s','т':'t','у':'u','ф':'f','х':'h','ц':'ts',
+    'ч':'ch','ш':'sh','щ':'sch','ъ':'','ы':'y','ь':'','э':'e','ю':'yu',
+    'я':'ya',
+}
+
+def _translit(text: str) -> str:
+    result = []
+    for ch in text.lower():
+        result.append(_TRANSLIT.get(ch, ch))
+    return "".join(result)
+
+def _has_cyrillic(text: str) -> bool:
+    return any('\u0400' <= c <= '\u04FF' for c in text)
+
+
+# ══════════════════════════════════════════
 #  AUTO SEARCH (must be after all FSM)
 # ══════════════════════════════════════════
 
 async def _do_search(message: Message, query: str):
     uid = message.from_user.id
     db.ensure_user(uid, message.from_user.username)
-    msg    = await message.answer(t(uid, "searching", q=query), parse_mode="Markdown")
+    msg = await message.answer(t(uid, "searching", q=query), parse_mode="Markdown")
+
     tracks = await search_soundcloud(query, limit=8)
+
+    # Если запрос на кириллице и мало результатов — ищем транслитом тоже
+    if _has_cyrillic(query):
+        translit_query = _translit(query)
+        translit_tracks = await search_soundcloud(translit_query, limit=8)
+        # Объединяем, убирая дубли по track_id
+        seen = {tr["track_id"] for tr in tracks}
+        for tr in translit_tracks:
+            if tr["track_id"] not in seen:
+                tracks.append(tr)
+                seen.add(tr["track_id"])
+        tracks = tracks[:8]
+
     if not tracks:
         await msg.edit_text(t(uid, "not_found"))
         return

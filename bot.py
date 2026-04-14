@@ -663,6 +663,18 @@ async def gate_middleware(handler, event: Message, data: dict):
     if maintenance_mode and not is_admin(uid):
         await event.answer(t(uid, "maintenance"), parse_mode="Markdown")
         return
+
+    # Проверка подписки на канал
+    if not is_admin(uid) and not is_owner(uid):
+        txt = (event.text or "").strip()
+        is_start = txt.startswith("/start")
+        if not await check_subscription(uid):
+            await event.answer(
+                "📢 Для использования бота необходимо подписаться на наш канал!",
+                reply_markup=kb_subscribe()
+            )
+            return
+
     return await handler(event, data)
 
 
@@ -760,6 +772,21 @@ async def pl_join_by_code(message: Message, state: FSMContext):
         await message.answer(t(uid, "pl_full", lim=PLAYLIST_LIMIT))
     else:
         await message.answer("❌ Ошибка при добавлении плейлиста.")
+
+
+@dp.message(S.ban_reason, F.text)
+async def ban_reason_handler(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id): return
+    txt = message.text.strip()
+    if txt in _BTN_VALUES:
+        await state.clear()
+        await btn_router(message, state)
+        return
+    data   = await state.get_data()
+    tid    = data.get("ban_target")
+    reason = txt if txt else None
+    await state.clear()
+    await _do_ban(message, tid, reason=reason)
 
 
 @dp.message(S.support_writing, F.text | F.photo | F.video | F.document)
@@ -1812,8 +1839,13 @@ async def cmd_ban(message: Message, state: FSMContext):
         await state.set_state(S.ban_reason)
         await state.update_data(ban_target=tid)
         await message.answer(
-            f"❓ Укажи причину бана для `{tid}` или нажми /skip чтобы забанить без причины:",
-            parse_mode="Markdown"
+            f"❓ Укажи причину бана для `{tid}`\n\n"
+            "Или нажми кнопку ниже:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🚫 Забанить без причины", callback_data=f"ban_noreason:{tid}"),
+                InlineKeyboardButton(text="❌ Отмена", callback_data="ban_cancel"),
+            ]])
         )
 
 
@@ -1835,18 +1867,60 @@ async def _do_ban(message: Message, tid: int, reason: Optional[str] = None):
         pass
 
 
-@dp.message(S.ban_reason, F.text)
-async def ban_reason_handler(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id): return
-    if message.text.strip() in _BTN_VALUES:
-        await state.clear()
-        await btn_router(message, state)
-        return
-    data   = await state.get_data()
-    tid    = data.get("ban_target")
-    reason = message.text.strip()
+@dp.callback_query(F.data.startswith("ban_noreason:"))
+async def cb_ban_noreason(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔", show_alert=True); return
+    tid = int(callback.data.split(":")[1])
     await state.clear()
-    await _do_ban(message, tid, reason=reason)
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await _do_ban(callback.message, tid, reason=None)
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "ban_cancel")
+async def cb_ban_cancel(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("⛔", show_alert=True); return
+    await state.clear()
+    await callback.message.edit_text("❌ Бан отменён.")
+    await callback.answer()
+
+
+# ══════════════════════════════════════════
+#  SUBSCRIPTION CHECK
+# ══════════════════════════════════════════
+
+CHANNEL_ID = "@biss_music_off"
+
+async def check_subscription(uid: int) -> bool:
+    try:
+        member = await bot.get_chat_member(CHANNEL_ID, uid)
+        return member.status not in ("left", "kicked", "banned")
+    except Exception:
+        return True  # если не можем проверить — пропускаем
+
+
+def kb_subscribe():
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📢 Подписаться", url=f"https://t.me/biss_music_off")],
+        [InlineKeyboardButton(text="✅ Я подписался", callback_data="check_sub")],
+    ])
+
+
+@dp.callback_query(F.data == "check_sub")
+async def cb_check_sub(callback: CallbackQuery):
+    uid = callback.from_user.id
+    if await check_subscription(uid):
+        await callback.message.edit_reply_markup(reply_markup=None)
+        await callback.message.answer(
+            t(uid, "welcome", name=callback.from_user.first_name),
+            parse_mode="Markdown",
+            reply_markup=kb_main(uid)
+        )
+        await callback.answer("✅ Добро пожаловать!")
+    else:
+        await callback.answer("❌ Ты ещё не подписан!", show_alert=True)
 
 
 @dp.message(Command("skip"))
